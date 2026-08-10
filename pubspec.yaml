@@ -1,0 +1,66 @@
+name: ai_life_vault
+description: AI Life Vault - Emergency Medical Profile App
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Firebase
+  firebase_core: ^3.12.1
+  firebase_auth: ^5.5.1
+  cloud_firestore: ^5.6.5
+
+  # State Management
+  provider: ^6.1.2
+
+  # Networking
+  http: ^1.2.2
+
+  # Local Storage
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+
+  # Navigation
+  go_router: ^14.6.2
+
+  # QR Code
+  qr_flutter: ^4.1.0
+
+  # Image Picker
+  image_picker: ^1.1.2
+
+  # Permissions
+  permission_handler: ^11.3.1
+
+  # UUID Generator
+  uuid: ^4.5.1
+
+  # Share / Export / Launcher
+  share_plus: ^10.1.4
+  url_launcher: ^6.3.1
+  path_provider: ^2.1.4
+
+  # Icons & UI
+  cupertino_icons: ^1.0.8
+  flutter_animate: ^4.5.0
+  google_fonts: ^6.2.1
+  percent_indicator: ^4.2.3
+  lottie: ^3.1.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  hive_generator: ^2.0.1
+  build_runner: ^2.4.13
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/animations/
