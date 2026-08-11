@@ -113,8 +113,8 @@ class FirebaseService {
   // Emergency Profile — Atomic Batch Operations (emergencyProfiles/{userId})
   // ---------------------------------------------------------------------------
 
-  /// Atomically saves Medical Profile to emergencyProfiles/{userId} and syncs
-  /// patient name to users/{userId} in a SINGLE Firestore WriteBatch.
+  /// Atomically saves Medical Profile to emergencyProfiles/{userId},
+  /// syncs patient name to users/{userId}, AND syncs sanitized public fields to publicEmergencyProfiles/{qrId}.
   static Future<bool> saveProfile(MedicalProfile profile) async {
     if (!_isInitialized) return false;
     try {
@@ -125,11 +125,11 @@ class FirebaseService {
 
       final batch = _firestore.batch();
 
-      // Document 1: emergencyProfiles/{userId}
+      // Document 1: Private profile: emergencyProfiles/{userId}
       final profileRef = _firestore.collection(_collectionEmergencyProfiles).doc(uid);
       batch.set(profileRef, data, SetOptions(merge: true));
 
-      // Document 2: users/{userId} (Keep name & phone in sync)
+      // Document 2: User Account: users/{userId} (Keep name & phone in sync)
       if (profile.fullName.isNotEmpty || profile.userPhone.isNotEmpty) {
         final userRef = _firestore.collection(_collectionUsers).doc(uid);
         batch.set(userRef, {
@@ -140,8 +140,32 @@ class FirebaseService {
         }, SetOptions(merge: true));
       }
 
+      // Document 3: Public Emergency Profile: publicEmergencyProfiles/{qrId}
+      // Stores ONLY sanitized public fields necessary for emergency responders
+      if (profile.qrId.isNotEmpty) {
+        final publicData = {
+          'qrId': profile.qrId,
+          'fullName': profile.fullName,
+          'age': profile.age,
+          'gender': profile.gender,
+          'bloodGroup': profile.bloodGroup,
+          'allergies': profile.allergies,
+          'diseases': profile.diseases,
+          'medications': profile.medications,
+          'isOrganDonor': profile.isOrganDonor,
+          'medicalNotes': profile.medicalNotes,
+          'emergencyContactName': profile.emergencyContactName,
+          'relationship': profile.relationship,
+          'emergencyPhone': profile.emergencyPhone,
+          'aiSummary': profile.aiSummary,
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
+        final publicRef = _firestore.collection('publicEmergencyProfiles').doc(profile.qrId);
+        batch.set(publicRef, publicData, SetOptions(merge: true));
+      }
+
       await batch.commit();
-      debugPrint('✅ Profile & User atomically saved to Firestore (doc: $uid)');
+      debugPrint('✅ Profile & Public Emergency Data atomically saved (doc: $uid, qrId: ${profile.qrId})');
       return true;
     } catch (e) {
       debugPrint('❌ Firestore saveProfile error: $e');
@@ -184,17 +208,39 @@ class FirebaseService {
   }
 
   /// Fast indexed query to fetch emergency profile by unique QR ID (qrId).
+  /// First checks publicEmergencyProfiles/{qrId} (unauthenticated public read),
+  /// falling back to emergencyProfiles collection.
   static Future<MedicalProfile?> getProfileByQrId(String qrId) async {
     if (!_isInitialized || qrId.isEmpty) return null;
     try {
-      final query = await _firestore
-          .collection(_collectionEmergencyProfiles)
-          .where('qrId', isEqualTo: qrId)
+      final cleanQrId = qrId.trim();
+
+      // 1. Check dedicated public document publicEmergencyProfiles/{qrId}
+      final publicDoc = await _firestore.collection('publicEmergencyProfiles').doc(cleanQrId).get();
+      if (publicDoc.exists && publicDoc.data() != null) {
+        return MedicalProfile.fromJson(publicDoc.data()!);
+      }
+
+      // 2. Query publicEmergencyProfiles collection where qrId == qrId
+      final publicQuery = await _firestore
+          .collection('publicEmergencyProfiles')
+          .where('qrId', isEqualTo: cleanQrId)
           .limit(1)
           .get();
 
-      if (query.docs.isNotEmpty) {
-        return MedicalProfile.fromJson(query.docs.first.data());
+      if (publicQuery.docs.isNotEmpty) {
+        return MedicalProfile.fromJson(publicQuery.docs.first.data());
+      }
+
+      // 3. Fallback query on legacy emergencyProfiles collection
+      final legacyQuery = await _firestore
+          .collection(_collectionEmergencyProfiles)
+          .where('qrId', isEqualTo: cleanQrId)
+          .limit(1)
+          .get();
+
+      if (legacyQuery.docs.isNotEmpty) {
+        return MedicalProfile.fromJson(legacyQuery.docs.first.data());
       }
       return null;
     } catch (e) {

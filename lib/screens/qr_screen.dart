@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'dart:convert';
 import '../core/constants/app_colors.dart';
 import '../providers/profile_provider.dart';
 import '../services/sos_service.dart';
@@ -58,14 +57,85 @@ class QrScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Emergency QR Code',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-              Text('Scan for instant medical access',
-                  style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
-            ],
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Emergency QR Code',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                Text('Scan for instant medical access',
+                    style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Simulate / Input QR Scan',
+            icon: const Icon(Icons.qr_code_scanner_rounded, color: AppColors.primary),
+            onPressed: () {
+              final textCtrl = TextEditingController();
+              showDialog(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  backgroundColor: const Color(0xFF1E1035),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  title: const Row(
+                    children: [
+                      Icon(Icons.qr_code_scanner_rounded, color: AppColors.emergency),
+                      SizedBox(width: 8),
+                      Text('Scan / Input QR Payload',
+                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Paste scanned QR payload (JSON string or Emergency ID):',
+                        style: TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: textCtrl,
+                        maxLines: 3,
+                        style: const TextStyle(color: Colors.white, fontSize: 13, fontFamily: 'monospace'),
+                        decoration: InputDecoration(
+                          hintText: '{"qrId": "EM-IND-...", "name": "..."}',
+                          hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 12),
+                          filled: true,
+                          fillColor: Colors.black26,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: AppColors.primary.withValues(alpha: 0.5)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+                    ),
+                    ElevatedButton(
+                      onPressed: () {
+                        final input = textCtrl.text.trim();
+                        Navigator.pop(ctx);
+                        if (input.isNotEmpty) {
+                          if (input.startsWith('{')) {
+                            context.push('/emergency', extra: input);
+                          } else {
+                            context.push('/emergency?qrId=$input');
+                          }
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.emergency),
+                      child: const Text('View Profile Card', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -73,17 +143,9 @@ class QrScreen extends StatelessWidget {
   }
 
   Widget _buildQrContent(BuildContext context, profile, bool isDark) {
-    // Complete Emergency QR payload
-    final qrData = jsonEncode({
-      'qrId': profile.qrId,
-      'name': profile.fullName,
-      'patientPhone': profile.userPhone,
-      'bloodGroup': profile.bloodGroup,
-      'allergies': profile.allergies,
-      'emergencyContact': profile.emergencyContactName,
-      'emergencyPhone': profile.emergencyPhone,
-      'relationship': profile.relationship,
-    });
+    // Public Emergency URL payload
+    final emergencyUrl = 'https://blood-bank-app-9c6db.web.app/emergency/${profile.qrId}';
+    final qrData = emergencyUrl;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),

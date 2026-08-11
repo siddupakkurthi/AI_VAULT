@@ -1,0 +1,41 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================
+    // PUBLIC EMERGENCY PROFILES
+    // QR scanners can READ emergency profiles without login.
+    // Only authenticated app users can create/update/delete them.
+    // =========================================================
+
+    match /publicEmergencyProfiles/{qrId} {
+
+      allow read: if true;
+
+      allow create, update, delete: if request.auth != null;
+    }
+
+
+    // =========================================================
+    // PRIVATE USER DATA
+    // Users must be authenticated.
+    // A user can access only their own document.
+    // =========================================================
+
+    match /users/{userId} {
+
+      allow read, write: if request.auth != null
+                         && request.auth.uid == userId;
+    }
+
+
+    // =========================================================
+    // DENY EVERYTHING ELSE
+    // =========================================================
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

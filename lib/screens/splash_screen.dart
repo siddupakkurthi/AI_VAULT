@@ -1,7 +1,9 @@
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+
 import '../core/constants/app_colors.dart';
 import '../core/router/app_router.dart';
 import '../providers/auth_provider.dart';
@@ -21,6 +23,7 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void initState() {
     super.initState();
+
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
@@ -30,18 +33,64 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _navigateNext() async {
+    // ============================================================
+    // PUBLIC EMERGENCY URL CHECK
+    //
+    // If somebody scans a QR code and opens:
+    //
+    // https://blood-bank-app-9c6db.web.app/emergency/ABC123
+    //
+    // NEVER send that person to Splash -> Login.
+    // ============================================================
+
+    final browserPath = Uri.base.path;
+
+    if (browserPath.startsWith('/emergency/')) {
+      // This is a public emergency page.
+      //
+      // Do NOT:
+      // - check authentication
+      // - create an anonymous account
+      // - open login
+      // - open dashboard
+      //
+      // The GoRouter emergency route handles the page.
+      return;
+    }
+
+    // Normal application startup.
     await Future.delayed(const Duration(milliseconds: 2500));
+
     if (!mounted) return;
+
+    // Check the current browser/router location again.
+    final currentPath = Uri.base.path;
+
+    // Emergency route may have been reached while the splash
+    // animation was running.
+    if (currentPath.startsWith('/emergency/')) {
+      return;
+    }
 
     final authProvider = context.read<AuthProvider>();
     final profileProvider = context.read<ProfileProvider>();
 
+    // ============================================================
+    // NORMAL APP AUTHENTICATION
+    // ============================================================
+
     if (authProvider.isAuthenticated) {
-      // Load user profile from cloud/local for authenticated user
+      // Load the authenticated user's profile.
       await profileProvider.loadProfileForUser(authProvider.uid);
-      if (mounted) context.go(AppRouter.dashboard);
+
+      if (!mounted) return;
+
+      context.go(AppRouter.dashboard);
     } else {
-      if (mounted) context.go(AppRouter.login);
+      // Only normal application visitors are sent to Login.
+      if (mounted) {
+        context.go(AppRouter.login);
+      }
     }
   }
 
@@ -57,14 +106,21 @@ class _SplashScreenState extends State<SplashScreen>
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF0A0618), Color(0xFF1A0A38), Color(0xFF0D1B3E)],
+            colors: [
+              Color(0xFF0A0618),
+              Color(0xFF1A0A38),
+              Color(0xFF0D1B3E),
+            ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
         ),
         child: Stack(
           children: [
-            // Background circles
+            // ======================================================
+            // BACKGROUND CIRCLES
+            // ======================================================
+
             Positioned(
               top: -80,
               right: -60,
@@ -77,6 +133,7 @@ class _SplashScreenState extends State<SplashScreen>
                 ),
               ),
             ),
+
             Positioned(
               bottom: -100,
               left: -80,
@@ -90,7 +147,10 @@ class _SplashScreenState extends State<SplashScreen>
               ),
             ),
 
-            // Main content
+            // ======================================================
+            // MAIN CONTENT
+            // ======================================================
+
             Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -110,7 +170,10 @@ class _SplashScreenState extends State<SplashScreen>
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         gradient: const LinearGradient(
-                          colors: [Color(0xFF6C3EE8), Color(0xFF9B59B6)],
+                          colors: [
+                            Color(0xFF6C3EE8),
+                            Color(0xFF9B59B6),
+                          ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
@@ -131,7 +194,10 @@ class _SplashScreenState extends State<SplashScreen>
                   )
                       .animate()
                       .fadeIn(duration: 600.ms)
-                      .scale(begin: const Offset(0.5, 0.5), duration: 600.ms),
+                      .scale(
+                        begin: const Offset(0.5, 0.5),
+                        duration: 600.ms,
+                      ),
 
                   const SizedBox(height: 32),
 
@@ -147,15 +213,23 @@ class _SplashScreenState extends State<SplashScreen>
                   )
                       .animate(delay: 400.ms)
                       .fadeIn(duration: 600.ms)
-                      .slideY(begin: 0.3, duration: 600.ms),
+                      .slideY(
+                        begin: 0.3,
+                        duration: 600.ms,
+                      ),
 
                   const SizedBox(height: 10),
 
                   // Tagline
                   ShaderMask(
-                    shaderCallback: (bounds) => const LinearGradient(
-                      colors: [Color(0xFF8B5CF6), Color(0xFFEF4444)],
-                    ).createShader(bounds),
+                    shaderCallback: (bounds) {
+                      return const LinearGradient(
+                        colors: [
+                          Color(0xFF8B5CF6),
+                          Color(0xFFEF4444),
+                        ],
+                      ).createShader(bounds);
+                    },
                     child: const Text(
                       'Your Emergency. Our Priority.',
                       style: TextStyle(
@@ -176,7 +250,10 @@ class _SplashScreenState extends State<SplashScreen>
                     width: 180,
                     child: LinearProgressIndicator(
                       backgroundColor: AppColors.darkBorder,
-                      valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
+                      valueColor:
+                          const AlwaysStoppedAnimation<Color>(
+                        AppColors.primary,
+                      ),
                       borderRadius: BorderRadius.circular(10),
                       minHeight: 3,
                     ),
@@ -200,7 +277,10 @@ class _SplashScreenState extends State<SplashScreen>
               ),
             ),
 
-            // Bottom badge
+            // ======================================================
+            // BOTTOM BADGE
+            // ======================================================
+
             Positioned(
               bottom: 40,
               left: 0,
@@ -208,16 +288,27 @@ class _SplashScreenState extends State<SplashScreen>
               child: Column(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
-                      color: AppColors.emergency.withValues(alpha: 0.15),
+                      color:
+                          AppColors.emergency.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppColors.emergency.withValues(alpha: 0.3)),
+                      border: Border.all(
+                        color: AppColors.emergency
+                            .withValues(alpha: 0.3),
+                      ),
                     ),
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.shield_outlined, color: AppColors.emergency, size: 14),
+                        Icon(
+                          Icons.shield_outlined,
+                          color: AppColors.emergency,
+                          size: 14,
+                        ),
                         SizedBox(width: 6),
                         Text(
                           'Emergency Medical ID System',
@@ -241,3 +332,4 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 }
+

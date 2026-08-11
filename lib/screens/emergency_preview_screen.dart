@@ -2,518 +2,1160 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_animate/flutter_animate.dart';
-import '../core/constants/app_colors.dart';
+import 'dart:convert';
+
 import '../providers/profile_provider.dart';
-import '../services/sos_service.dart';
-import '../widgets/common_widgets.dart';
+import '../services/firebase_service.dart';
+import '../models/medical_profile.dart';
 
 class EmergencyPreviewScreen extends StatefulWidget {
-  const EmergencyPreviewScreen({super.key});
+  final String? qrId;
+  final String? rawData;
+
+  const EmergencyPreviewScreen({
+    super.key,
+    this.qrId,
+    this.rawData,
+  });
 
   @override
-  State<EmergencyPreviewScreen> createState() => _EmergencyPreviewScreenState();
+  State<EmergencyPreviewScreen> createState() =>
+      _EmergencyPreviewScreenState();
 }
 
-class _EmergencyPreviewScreenState extends State<EmergencyPreviewScreen>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _pulseCtrl;
+class _EmergencyPreviewScreenState extends State<EmergencyPreviewScreen> {
+  MedicalProfile? _scannedProfile;
+
+  bool _isLoadingScannedProfile = false;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _pulseCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    )..repeat(reverse: true);
 
-    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-    ));
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+      ),
+    );
+
+    _processQrData();
   }
 
   @override
-  void dispose() {
-    _pulseCtrl.dispose();
-    super.dispose();
+  void didUpdateWidget(covariant EmergencyPreviewScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.qrId != widget.qrId ||
+        oldWidget.rawData != widget.rawData) {
+      _processQrData();
+    }
   }
+
+  // ============================================================
+  // LOAD EMERGENCY PROFILE
+  // ============================================================
+
+  Future<void> _processQrData() async {
+    String? targetQrId = widget.qrId;
+
+    Map<String, dynamic>? parsedJson;
+
+    // ------------------------------------------------------------
+    // 1. Handle raw QR data / URL / old JSON QR
+    // ------------------------------------------------------------
+
+    if (widget.rawData != null &&
+        widget.rawData!.trim().isNotEmpty) {
+      final raw = widget.rawData!.trim();
+
+      try {
+        // New QR format:
+        // https://blood-bank-app-9c6db.web.app/emergency/ABC123
+        if (raw.startsWith('http://') ||
+            raw.startsWith('https://')) {
+          final uri = Uri.tryParse(raw);
+
+          if (uri != null) {
+            final segments = uri.pathSegments;
+
+            final emergencyIndex =
+                segments.indexOf('emergency');
+
+            if (emergencyIndex >= 0 &&
+                emergencyIndex + 1 < segments.length) {
+              targetQrId = segments[emergencyIndex + 1];
+            }
+          }
+        }
+
+        // Old JSON QR support
+        else if (raw.startsWith('{') && raw.endsWith('}')) {
+          parsedJson =
+              jsonDecode(raw) as Map<String, dynamic>;
+
+          if (parsedJson.containsKey('qrId')) {
+            targetQrId =
+                parsedJson['qrId']?.toString();
+          }
+        }
+
+        // Direct QR ID
+        else {
+          targetQrId = raw;
+        }
+      } catch (e) {
+        debugPrint('Error parsing QR data: $e');
+      }
+    }
+
+    // ------------------------------------------------------------
+    // 2. Wait for Firebase initialization
+    // ------------------------------------------------------------
+
+    int attempts = 0;
+
+    while (!FirebaseService.isInitialized &&
+        attempts < 20) {
+      await Future.delayed(
+        const Duration(milliseconds: 250),
+      );
+
+      attempts++;
+    }
+
+    // ------------------------------------------------------------
+    // 3. Fetch profile from Firebase
+    // ------------------------------------------------------------
+
+    if (targetQrId != null &&
+        targetQrId.trim().isNotEmpty) {
+      if (mounted) {
+        setState(() {
+          _isLoadingScannedProfile = true;
+          _errorMessage = null;
+        });
+      }
+
+      try {
+        // Public emergency access.
+        // This does NOT require the person scanning
+        // the QR to create a normal account.
+
+        final fetched =
+            await FirebaseService.getProfileByQrId(
+          targetQrId.trim(),
+        );
+
+        if (!mounted) return;
+
+        if (fetched != null) {
+          setState(() {
+            _scannedProfile = fetched;
+            _isLoadingScannedProfile = false;
+            _errorMessage = null;
+          });
+
+          return;
+        }
+      } catch (e) {
+        debugPrint(
+          'Error loading emergency profile: $e',
+        );
+
+        if (mounted) {
+          setState(() {
+            _errorMessage =
+                'Unable to load emergency profile.\n'
+                'Please check your internet connection.';
+          });
+        }
+      }
+    }
+
+    // ------------------------------------------------------------
+    // 4. Old JSON fallback
+    // ------------------------------------------------------------
+
+    if (parsedJson != null) {
+      try {
+        final parsedProfile =
+            MedicalProfile.fromJson(parsedJson);
+
+        if (!mounted) return;
+
+        setState(() {
+          _scannedProfile = parsedProfile;
+          _isLoadingScannedProfile = false;
+          _errorMessage = null;
+        });
+
+        return;
+      } catch (e) {
+        debugPrint(
+          'Failed converting JSON to profile: $e',
+        );
+      }
+    }
+
+    // ------------------------------------------------------------
+    // 5. Error
+    // ------------------------------------------------------------
+
+    if (!mounted) return;
+
+    setState(() {
+      _isLoadingScannedProfile = false;
+
+      if (targetQrId != null &&
+          targetQrId.isNotEmpty) {
+        _errorMessage ??=
+            'Emergency profile not found';
+      } else {
+        _errorMessage ??=
+            'Invalid Emergency QR';
+      }
+    });
+  }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
 
   @override
   Widget build(BuildContext context) {
-    final profile = context.watch<ProfileProvider>().profile;
+    final localProfile =
+        context.watch<ProfileProvider>().profile;
+
+    final profile =
+        _scannedProfile ?? localProfile;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF07020D),
-      body: SafeArea(
-        child: profile == null
-            ? _buildNoProfile(context)
-            : _buildEmergencyContent(context, profile),
+      backgroundColor: const Color(0xFFF4F7FB),
+
+      // ========================================================
+      // APP BAR
+      // ========================================================
+
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFB91C1C),
+        elevation: 0,
+
+        leading: context.canPop()
+            ? IconButton(
+                icon: const Icon(
+                  Icons.arrow_back_ios_new_rounded,
+                  color: Colors.white,
+                ),
+                onPressed: () {
+                  context.pop();
+                },
+              )
+            : null,
+
+        title: const Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            Text(
+              'AI LIFE VAULT',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.5,
+              ),
+            ),
+            Text(
+              'Emergency Medical ID',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
+      ),
+
+      // ========================================================
+      // BODY
+      // ========================================================
+
+      body: _isLoadingScannedProfile
+          ? _buildLoading()
+          : profile == null
+              ? _buildNoProfileState()
+              : _buildEmergencyPage(profile),
+    );
+  }
+
+  // ============================================================
+  // LOADING
+  // ============================================================
+
+  Widget _buildLoading() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment:
+            MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(
+            color: Color(0xFFB91C1C),
+          ),
+          SizedBox(height: 18),
+          Text(
+            'Loading Emergency Medical Profile...',
+            style: TextStyle(
+              color: Colors.black54,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildEmergencyContent(BuildContext context, profile) {
-    return Column(
-      children: [
-        // Flashing Paramedic Emergency Banner
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFFB91C1C), Color(0xFF991B1B), Color(0xFF450A0A)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Color(0xFFDC2626),
-                blurRadius: 15,
-                spreadRadius: 1,
-              ),
-            ],
+  // ============================================================
+  // MAIN EMERGENCY PAGE
+  // ============================================================
+
+  Widget _buildEmergencyPage(
+    MedicalProfile profile,
+  ) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+
+        child: ConstrainedBox(
+          constraints:
+              const BoxConstraints(
+            maxWidth: 700,
           ),
+
           child: Column(
             children: [
-              Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => context.go('/dashboard'),
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: Colors.black26,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(Icons.close, color: Colors.white, size: 20),
-                    ),
-                  ),
-                  const Spacer(),
-                  AnimatedBuilder(
-                    animation: _pulseCtrl,
-                    builder: (_, child) => Transform.scale(
-                      scale: 1.0 + (_pulseCtrl.value * 0.12),
-                      child: child,
-                    ),
-                    child: const Icon(Icons.warning_amber_rounded,
-                        color: Colors.yellowAccent, size: 22),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'FIRST RESPONDER EMERGENCY VIEW',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  const Spacer(),
-                  const SizedBox(width: 28),
-                ],
-              ),
-              const SizedBox(height: 14),
+              // --------------------------------------------------
+              // EMERGENCY HEADER
+              // --------------------------------------------------
 
-              // Patient Primary Profile Card
-              Row(
-                children: [
-                  // Profile Avatar / Initials
-                  Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white,
-                      border: Border.all(color: Colors.white, width: 3),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.4),
-                          blurRadius: 10,
-                        ),
-                      ],
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.all(22),
+
+                decoration: BoxDecoration(
+                  color: const Color(0xFFB91C1C),
+                  borderRadius:
+                      const BorderRadius.vertical(
+                    top: Radius.circular(20),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.red
+                          .withValues(alpha: 0.18),
+                      blurRadius: 20,
+                      offset:
+                          const Offset(0, 8),
                     ),
-                    child: Center(
-                      child: Text(
-                        profile.fullName.isNotEmpty
-                            ? profile.fullName[0].toUpperCase()
-                            : '?',
-                        style: const TextStyle(
-                          color: Color(0xFFB91C1C),
-                          fontSize: 28,
-                          fontWeight: FontWeight.w900,
-                        ),
+                  ],
+                ),
+
+                child: const Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 28,
+                      backgroundColor:
+                          Colors.white24,
+                      child: Icon(
+                        Icons.favorite_rounded,
+                        color: Colors.white,
+                        size: 30,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 14),
+                    SizedBox(width: 16),
 
-                  // Name & Demographics
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          profile.fullName.isEmpty ? 'Anonymous Patient' : profile.fullName,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.5,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'EMERGENCY MEDICAL ID',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight:
+                                  FontWeight.w900,
+                              letterSpacing: 1,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${profile.age} yrs • ${profile.gender}${profile.height > 0 ? ' • ${profile.height.toInt()}cm' : ''}${profile.weight > 0 ? ' • ${profile.weight.toInt()}kg' : ''}',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
+                          SizedBox(height: 5),
+                          Text(
+                            'AI Life Vault • Emergency Response',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-
-                  // Giant High-Visibility Blood Group Pill
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          profile.bloodGroup.isEmpty ? '?' : profile.bloodGroup,
-                          style: const TextStyle(
-                            color: Color(0xFFB91C1C),
-                            fontWeight: FontWeight.w900,
-                            fontSize: 20,
-                          ),
-                        ),
-                        const Text(
-                          'BLOOD',
-                          style: TextStyle(
-                            color: Color(0xFFB91C1C),
-                            fontWeight: FontWeight.w800,
-                            fontSize: 9,
-                            letterSpacing: 1,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ],
-          ),
-        ),
 
-        // High-Visibility Medical Data Body
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                // ⚠️ CRITICAL ALLERGIES (Red High-Alert Box)
-                if (profile.allergies.isNotEmpty)
-                  _buildEmergencyAlertBox(
-                    title: '⛔ CRITICAL ALLERGIES — DO NOT ADMINISTER',
-                    items: profile.allergies,
-                    color: const Color(0xFFEF4444),
-                    bgColor: const Color(0xFF2A0808),
-                    borderColor: const Color(0xFFEF4444),
-                    icon: Icons.cancel_rounded,
-                  ).animate().fadeIn(duration: 300.ms)
-                else
-                  _buildEmergencyAlertBox(
-                    title: '✅ NO KNOWN ALLERGIES RECORDED',
-                    items: [],
-                    color: const Color(0xFF10B981),
-                    bgColor: const Color(0xFF042F2E),
-                    borderColor: const Color(0xFF10B981),
-                    icon: Icons.check_circle_rounded,
-                  ).animate().fadeIn(),
+              // --------------------------------------------------
+              // PATIENT IDENTITY
+              // --------------------------------------------------
 
-                const SizedBox(height: 12),
-
-                // 🏥 EXISTING CONDITIONS (Amber Alert Box)
-                if (profile.diseases.isNotEmpty)
-                  _buildEmergencyAlertBox(
-                    title: '🏥 MEDICAL CONDITIONS & DIAGNOSES',
-                    items: profile.diseases,
-                    color: const Color(0xFBF59E0B),
-                    bgColor: const Color(0xFF2E1C04),
-                    borderColor: const Color(0xFBF59E0B),
-                    icon: Icons.local_hospital_rounded,
-                  ).animate(delay: 100.ms).fadeIn(),
-
-                if (profile.diseases.isNotEmpty) const SizedBox(height: 12),
-
-                // 💊 CURRENT MEDICATIONS (Blue Alert Box)
-                if (profile.medications.isNotEmpty)
-                  _buildEmergencyAlertBox(
-                    title: '💊 CURRENT MEDICATIONS',
-                    items: profile.medications,
-                    color: const Color(0xFF3B82F6),
-                    bgColor: const Color(0xFF091E42),
-                    borderColor: const Color(0xFF3B82F6),
-                    icon: Icons.medication_rounded,
-                  ).animate(delay: 150.ms).fadeIn(),
-
-                if (profile.medications.isNotEmpty) const SizedBox(height: 12),
-
-                // 💚 ORGAN DONOR STATUS
-                if (profile.isOrganDonor)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF064E3B),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF10B981), width: 1.5),
+              _card(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'PATIENT',
+                      style: TextStyle(
+                        color: Color(0xFF6B7280),
+                        fontSize: 11,
+                        fontWeight:
+                            FontWeight.w800,
+                        letterSpacing: 1.5,
+                      ),
                     ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.favorite_rounded, color: Color(0xFF10B981), size: 20),
-                        SizedBox(width: 10),
-                        Text(
-                          '💚 REGISTERED ORGAN DONOR',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 13,
-                            letterSpacing: 1,
+
+                    const SizedBox(height: 8),
+
+                    Text(
+                      profile.fullName,
+                      style: const TextStyle(
+                        color: Color(0xFF111827),
+                        fontSize: 26,
+                        fontWeight:
+                            FontWeight.w900,
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    Text(
+                      '${profile.age} years • ${profile.gender}',
+                      style: const TextStyle(
+                        color: Color(0xFF6B7280),
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // --------------------------------------------------
+              // BLOOD GROUP
+              // --------------------------------------------------
+
+              _card(
+                child: Row(
+                  children: [
+                    _iconBox(
+                      Icons.bloodtype_rounded,
+                      const Color(0xFFDC2626),
+                    ),
+
+                    const SizedBox(width: 15),
+
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'BLOOD GROUP',
+                            style: TextStyle(
+                              color:
+                                  Color(0xFF6B7280),
+                              fontSize: 11,
+                              fontWeight:
+                                  FontWeight.w800,
+                              letterSpacing: 1.2,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ).animate(delay: 200.ms).fadeIn(),
 
-                if (profile.isOrganDonor) const SizedBox(height: 12),
-
-                // 🤖 AI EMERGENCY SUMMARY
-                if (profile.aiSummary.isNotEmpty)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1E1035),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: const Color(0xFF8B5CF6).withValues(alpha: 0.5)),
+                    Text(
+                      profile.bloodGroup,
+                      style: const TextStyle(
+                        color: Color(0xFFB91C1C),
+                        fontSize: 30,
+                        fontWeight:
+                            FontWeight.w900,
+                      ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Row(
+                  ],
+                ),
+              ),
+
+              // --------------------------------------------------
+              // ALLERGIES
+              // --------------------------------------------------
+
+              _medicalSection(
+                title: 'CRITICAL ALLERGIES',
+                icon: Icons.warning_amber_rounded,
+                color: const Color(0xFFDC2626),
+                items: profile.allergies,
+                emptyText:
+                    'No known allergies',
+                highlighted: true,
+              ),
+
+              // --------------------------------------------------
+              // CONDITIONS
+              // --------------------------------------------------
+
+              _medicalSection(
+                title: 'MEDICAL CONDITIONS',
+                icon: Icons.local_hospital_rounded,
+                color: const Color(0xFF7C3AED),
+                items: profile.diseases,
+                emptyText:
+                    'No conditions listed',
+              ),
+
+              // --------------------------------------------------
+              // MEDICATIONS
+              // --------------------------------------------------
+
+              _medicalSection(
+                title: 'CURRENT MEDICATIONS',
+                icon: Icons.medication_rounded,
+                color: const Color(0xFF2563EB),
+                items: profile.medications,
+                emptyText:
+                    'No medications listed',
+              ),
+
+              // --------------------------------------------------
+              // ORGAN DONOR
+              // --------------------------------------------------
+
+              if (profile.isOrganDonor)
+                _card(
+                  color: const Color(0xFFECFDF5),
+                  borderColor:
+                      const Color(0xFF10B981),
+                  child: Row(
+                    children: [
+                      _iconBox(
+                        Icons.volunteer_activism_rounded,
+                        const Color(0xFF059669),
+                      ),
+                      const SizedBox(width: 14),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.psychology_rounded, color: Color(0xFFA78BFA), size: 18),
-                            SizedBox(width: 8),
                             Text(
-                              'AI CLINICAL RISK ASSESSMENT',
+                              'ORGAN DONOR',
                               style: TextStyle(
-                                color: Color(0xFFA78BFA),
-                                fontWeight: FontWeight.w900,
-                                fontSize: 12,
-                                letterSpacing: 1,
+                                color:
+                                    Color(0xFF047857),
+                                fontSize: 11,
+                                fontWeight:
+                                    FontWeight.w800,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'Registered organ donor',
+                              style: TextStyle(
+                                color:
+                                    Color(0xFF065F46),
+                                fontSize: 15,
+                                fontWeight:
+                                    FontWeight.w700,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          profile.aiSummary,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            height: 1.5,
-                            fontFamily: 'monospace',
+                      ),
+                    ],
+                  ),
+                ),
+
+              // --------------------------------------------------
+              // MEDICAL NOTES
+              // --------------------------------------------------
+
+              if (profile.medicalNotes
+                  .trim()
+                  .isNotEmpty)
+                _card(
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      _sectionTitle(
+                        Icons.notes_rounded,
+                        'MEDICAL NOTES',
+                        const Color(0xFF475569),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      Text(
+                        profile.medicalNotes,
+                        style: const TextStyle(
+                          color: Color(0xFF374151),
+                          fontSize: 14,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // --------------------------------------------------
+              // AI SUMMARY
+              // --------------------------------------------------
+
+              _card(
+                color: const Color(0xFFF5F3FF),
+                borderColor:
+                    const Color(0xFF8B5CF6),
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    _sectionTitle(
+                      Icons.auto_awesome_rounded,
+                      'AI EMERGENCY SUMMARY',
+                      const Color(0xFF7C3AED),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    Text(
+                      _generateLocalSummary(
+                        profile,
+                      ),
+                      style: const TextStyle(
+                        color: Color(0xFF312E81),
+                        fontSize: 14,
+                        height: 1.55,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // --------------------------------------------------
+              // EMERGENCY CONTACT
+              // --------------------------------------------------
+
+              _card(
+                color: const Color(0xFFFFF7ED),
+                borderColor:
+                    const Color(0xFFF97316),
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    _sectionTitle(
+                      Icons.phone_in_talk_rounded,
+                      'EMERGENCY CONTACT',
+                      const Color(0xFFEA580C),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    Text(
+                      profile.emergencyContactName,
+                      style: const TextStyle(
+                        color: Color(0xFF111827),
+                        fontSize: 18,
+                        fontWeight:
+                            FontWeight.w800,
+                      ),
+                    ),
+
+                    const SizedBox(height: 4),
+
+                    Text(
+                      profile.relationship,
+                      style: const TextStyle(
+                        color: Color(0xFF6B7280),
+                        fontSize: 13,
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () =>
+                            _callEmergencyContact(
+                          profile.emergencyPhone,
+                        ),
+
+                        icon: const Icon(
+                          Icons.call_rounded,
+                        ),
+
+                        label: Text(
+                          'CALL ${profile.emergencyContactName}',
+                        ),
+
+                        style:
+                            ElevatedButton.styleFrom(
+                          backgroundColor:
+                              const Color(0xFF16A34A),
+                          foregroundColor:
+                              Colors.white,
+                          padding:
+                              const EdgeInsets
+                                  .symmetric(
+                            vertical: 15,
+                          ),
+                          shape:
+                              RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.circular(
+                              12,
+                            ),
                           ),
                         ),
-                      ],
+                      ),
                     ),
-                  ).animate(delay: 250.ms).fadeIn(),
-
-                const SizedBox(height: 20),
-
-                // Emergency ID Tag
-                Text(
-                  'Emergency Profile ID: ${profile.qrId}',
-                  style: const TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 11,
-                    letterSpacing: 1.5,
-                  ),
-                  textAlign: TextAlign.center,
+                  ],
                 ),
-                const SizedBox(height: 20),
-              ],
-            ),
+              ),
+
+              // --------------------------------------------------
+              // FOOTER
+              // --------------------------------------------------
+
+              const SizedBox(height: 10),
+
+              Text(
+                'AI LIFE VAULT',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 12,
+                  fontWeight:
+                      FontWeight.w900,
+                  letterSpacing: 2,
+                ),
+              ),
+
+              const SizedBox(height: 5),
+
+              Text(
+                'Emergency information • Scan to view',
+                style: TextStyle(
+                  color: Colors.grey.shade500,
+                  fontSize: 11,
+                ),
+              ),
+
+              const SizedBox(height: 20),
+            ],
           ),
         ),
+      ),
+    );
+  }
 
-        // Pinned Bottom SOS Action Buttons Bar
-        Container(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-          decoration: const BoxDecoration(
-            color: Color(0xFF0F071A),
-            border: Border(top: BorderSide(color: Color(0xFF241848))),
+  // ============================================================
+  // CARD
+  // ============================================================
+
+  Widget _card({
+    required Widget child,
+    Color color = Colors.white,
+    Color? borderColor,
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 12),
+
+      padding: const EdgeInsets.all(18),
+
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius:
+            BorderRadius.circular(16),
+
+        border: Border.all(
+          color: borderColor ??
+              const Color(0xFFE5E7EB),
+        ),
+
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 12,
+            offset: Offset(0, 4),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => SosService.makePhoneCall(profile.emergencyPhone),
-                      icon: const Icon(Icons.phone_in_talk_rounded, color: Colors.white, size: 18),
-                      label: Text(
-                        'CALL ${profile.emergencyContactName.toUpperCase().split(' ').first}',
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF10B981),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => SosService.sendEmergencySms(profile),
-                      icon: const Icon(Icons.emergency_share_rounded, color: Colors.white, size: 18),
-                      label: const Text(
-                        'SEND SOS SMS',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFDC2626),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+        ],
+      ),
+
+      child: child,
+    );
+  }
+
+  // ============================================================
+  // SECTION TITLE
+  // ============================================================
+
+  Widget _sectionTitle(
+    IconData icon,
+    String title,
+    Color color,
+  ) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          color: color,
+          size: 20,
+        ),
+        const SizedBox(width: 9),
+        Text(
+          title,
+          style: TextStyle(
+            color: color,
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.1,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildEmergencyAlertBox({
-    required String title,
-    required List<String> items,
-    required Color color,
-    required Color bgColor,
-    required Color borderColor,
-    required IconData icon,
-  }) {
+  // ============================================================
+  // ICON BOX
+  // ============================================================
+
+  Widget _iconBox(
+    IconData icon,
+    Color color,
+  ) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      width: 46,
+      height: 46,
+
       decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: borderColor, width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.25),
-            blurRadius: 10,
-            spreadRadius: 1,
-          ),
-        ],
+        color: color.withValues(
+          alpha: 0.10,
+        ),
+        borderRadius:
+            BorderRadius.circular(12),
       ),
+
+      child: Icon(
+        icon,
+        color: color,
+        size: 25,
+      ),
+    );
+  }
+
+  // ============================================================
+  // MEDICAL SECTION
+  // ============================================================
+
+  Widget _medicalSection({
+    required String title,
+    required IconData icon,
+    required Color color,
+    required List items,
+    required String emptyText,
+    bool highlighted = false,
+  }) {
+    return _card(
+      color: highlighted
+          ? const Color(0xFFFFF1F2)
+          : Colors.white,
+
+      borderColor: highlighted
+          ? const Color(0xFFFCA5A5)
+          : null,
+
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+
         children: [
-          Row(
-            children: [
-              Icon(icon, color: color, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 13,
-                    letterSpacing: 0.5,
+          _sectionTitle(
+            icon,
+            title,
+            color,
+          ),
+
+          const SizedBox(height: 13),
+
+          if (items.isEmpty)
+            Text(
+              emptyText,
+              style: TextStyle(
+                color: highlighted
+                    ? const Color(0xFF991B1B)
+                    : const Color(0xFF6B7280),
+                fontSize: 14,
+                fontWeight:
+                    FontWeight.w500,
+              ),
+            )
+          else
+            ...items.map(
+              (item) => Container(
+                width: double.infinity,
+                margin:
+                    const EdgeInsets.only(
+                  bottom: 7,
+                ),
+
+                padding:
+                    const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius:
+                      BorderRadius.circular(
+                    9,
+                  ),
+                  border: Border.all(
+                    color:
+                        color.withValues(
+                      alpha: 0.20,
+                    ),
                   ),
                 ),
+
+                child: Row(
+                  children: [
+                    Icon(
+                      highlighted
+                          ? Icons.warning_rounded
+                          : Icons.circle,
+                      color: color,
+                      size:
+                          highlighted ? 17 : 7,
+                    ),
+
+                    const SizedBox(width: 9),
+
+                    Expanded(
+                      child: Text(
+                        item.toString(),
+                        style:
+                            const TextStyle(
+                          color:
+                              Color(0xFF374151),
+                          fontSize: 14,
+                          fontWeight:
+                              FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
-          if (items.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: items
-                  .map((item) => Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: color.withValues(alpha: 0.25),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: color.withValues(alpha: 0.6)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.circle, size: 6, color: color),
-                            const SizedBox(width: 6),
-                            Text(
-                              item,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ))
-                  .toList(),
             ),
-          ],
         ],
       ),
     );
   }
 
-  Widget _buildNoProfile(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.emergency_rounded, size: 60, color: AppColors.emergency),
-          const SizedBox(height: 16),
-          const Text('No Emergency Profile',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.white)),
-          const SizedBox(height: 8),
-          const Text('Create your profile to enable emergency mode',
-              style: TextStyle(color: AppColors.textMuted)),
-          const SizedBox(height: 24),
-          GradientButton(
-            label: 'Create Profile',
-            icon: Icons.add_rounded,
-            onPressed: () => context.push('/create-profile'),
-            width: 200,
+  // ============================================================
+  // OFFLINE AI SUMMARY
+  // ============================================================
+
+  String _generateLocalSummary(
+    MedicalProfile profile,
+  ) {
+    final parts = <String>[];
+
+    parts.add(
+      '${profile.fullName} is a '
+      '${profile.age}-year-old '
+      '${profile.gender} patient.',
+    );
+
+    parts.add(
+      'Blood group: ${profile.bloodGroup}.',
+    );
+
+    if (profile.allergies.isNotEmpty) {
+      parts.add(
+        'Critical allergies: '
+        '${profile.allergies.join(', ')}.',
+      );
+    } else {
+      parts.add(
+        'No known allergies listed.',
+      );
+    }
+
+    if (profile.diseases.isNotEmpty) {
+      parts.add(
+        'Medical conditions: '
+        '${profile.diseases.join(', ')}.',
+      );
+    }
+
+    if (profile.medications.isNotEmpty) {
+      parts.add(
+        'Current medications: '
+        '${profile.medications.join(', ')}.',
+      );
+    }
+
+    if (profile.isOrganDonor) {
+      parts.add(
+        'Registered organ donor.',
+      );
+    }
+
+    return parts.join(' ');
+  }
+
+  // ============================================================
+  // CALL EMERGENCY CONTACT
+  // ============================================================
+
+  void _callEmergencyContact(
+    String phone,
+  ) {
+    final cleaned =
+        phone.trim();
+
+    if (cleaned.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Emergency contact number is not available.',
           ),
-        ],
+        ),
+      );
+
+      return;
+    }
+
+    // Copy number so the responder can
+    // quickly use the device dialer.
+    Clipboard.setData(
+      ClipboardData(
+        text: cleaned,
+      ),
+    );
+
+    ScaffoldMessenger.of(context)
+        .showSnackBar(
+      SnackBar(
+        content: Text(
+          'Emergency number copied: $cleaned',
+        ),
+        action: SnackBarAction(
+          label: 'OK',
+          onPressed: () {},
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // ERROR STATE
+  // ============================================================
+
+  Widget _buildNoProfileState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+
+        child: Column(
+          mainAxisAlignment:
+              MainAxisAlignment.center,
+
+          children: [
+            const Icon(
+              Icons
+                  .emergency_rounded,
+              size: 70,
+              color: Color(0xFFDC2626),
+            ),
+
+            const SizedBox(height: 18),
+
+            Text(
+              _errorMessage ??
+                  'Emergency profile not found',
+
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight:
+                    FontWeight.w800,
+                color: Color(0xFF111827),
+              ),
+
+              textAlign: TextAlign.center,
+            ),
+
+            const SizedBox(height: 10),
+
+            const Text(
+              'Please verify the emergency QR code and try again.',
+
+              style: TextStyle(
+                color: Color(0xFF6B7280),
+                fontSize: 13,
+              ),
+
+              textAlign: TextAlign.center,
+            ),
+
+            const SizedBox(height: 24),
+
+            ElevatedButton.icon(
+              onPressed:
+                  _processQrData,
+
+              icon: const Icon(
+                Icons.refresh_rounded,
+              ),
+
+              label: const Text(
+                'Retry',
+              ),
+
+              style:
+                  ElevatedButton.styleFrom(
+                backgroundColor:
+                    const Color(0xFFB91C1C),
+                foregroundColor:
+                    Colors.white,
+                padding:
+                    const EdgeInsets
+                        .symmetric(
+                  horizontal: 24,
+                  vertical: 13,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
