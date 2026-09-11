@@ -8,6 +8,7 @@ import '../../screens/profile/create_edit_profile_screen.dart';
 import '../../screens/ai_summary_screen.dart';
 import '../../screens/qr_screen.dart';
 import '../../screens/emergency_preview_screen.dart';
+import '../../screens/emergency_hospitals_screen.dart';
 import '../../screens/settings_screen.dart';
 import '../../screens/about_screen.dart';
 
@@ -20,6 +21,7 @@ class AppRouter {
   static const String aiSummary = '/ai-summary';
   static const String qrCode = '/qr-code';
   static const String emergency = '/emergency';
+  static const String emergencyHospitals = '/emergency-hospitals';
   static const String settings = '/settings';
   static const String about = '/about';
 
@@ -112,6 +114,11 @@ class AppRouter {
             rawData: rawData,
           );
         },
+      ),
+
+      GoRoute(
+        path: emergencyHospitals,
+        builder: (context, state) => const EmergencyHospitalsScreen(),
       ),
 
       GoRoute(

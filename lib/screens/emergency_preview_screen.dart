@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'dart:convert';
 
 import '../providers/profile_provider.dart';
+import '../providers/hospital_provider.dart';
 import '../services/firebase_service.dart';
 import '../models/medical_profile.dart';
 
@@ -731,6 +732,121 @@ class _EmergencyPreviewScreenState extends State<EmergencyPreviewScreen> {
                             ),
                           ),
                         ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // --------------------------------------------------
+              // FIND EMERGENCY CARE NEARBY (FOR QR RESPONDERS)
+              // --------------------------------------------------
+
+              _card(
+                color: const Color(0xFFFEF2F2),
+                borderColor: const Color(0xFFEF4444),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFB91C1C),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            '🚨 FOR RESPONDERS',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'NEARBY EMERGENCY CARE',
+                            style: TextStyle(
+                              color: Color(0xFFB91C1C),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    const Text(
+                      'Find hospitals, trauma centers, and emergency care near your current location.',
+                      style: TextStyle(
+                        color: Color(0xFF1F2937),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        height: 1.4,
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          context.read<HospitalProvider>().fetchNearbyEmergencyHospitals();
+                          context.push('/emergency-hospitals');
+                        },
+                        icon: const Icon(
+                          Icons.location_on_rounded,
+                          size: 20,
+                        ),
+                        label: const Text(
+                          '📍 Find Emergency Care Nearby',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFB91C1C),
+                          foregroundColor: Colors.white,
+                          elevation: 2,
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 16,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              12,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    const Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.near_me_rounded, size: 13, color: Color(0xFF6B7280)),
+                          SizedBox(width: 4),
+                          Text(
+                            'Uses scanner\'s live GPS location • No patient tracking',
+                            style: TextStyle(
+                              color: Color(0xFF6B7280),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],

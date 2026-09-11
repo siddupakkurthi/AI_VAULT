@@ -45,5 +45,7 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>AI Life Vault requires location permission to find nearby emergency care facilities and hospitals.</string>
 </dict>
 </plist>

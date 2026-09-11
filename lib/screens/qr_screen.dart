@@ -5,6 +5,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../core/constants/app_colors.dart';
 import '../providers/profile_provider.dart';
+import '../providers/hospital_provider.dart';
 import '../services/sos_service.dart';
 import '../widgets/common_widgets.dart';
 
@@ -337,6 +338,19 @@ class QrScreen extends StatelessWidget {
             colors: const [AppColors.emergency, AppColors.emergencyDark],
             onPressed: () => context.push('/emergency'),
           ).animate(delay: 300.ms).fadeIn(),
+
+          const SizedBox(height: 12),
+
+          // Find Emergency Care Nearby Button
+          GradientButton(
+            label: '📍 Find Emergency Care Nearby',
+            icon: Icons.local_hospital_rounded,
+            colors: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+            onPressed: () {
+              context.read<HospitalProvider>().fetchNearbyEmergencyHospitals();
+              context.push('/emergency-hospitals');
+            },
+          ).animate(delay: 350.ms).fadeIn(),
         ],
       ),
     );

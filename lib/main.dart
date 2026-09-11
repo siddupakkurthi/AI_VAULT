@@ -6,6 +6,7 @@ import 'core/theme/app_theme.dart';
 import 'providers/auth_provider.dart';
 import 'providers/profile_provider.dart';
 import 'providers/theme_provider.dart';
+import 'providers/hospital_provider.dart';
 import 'services/firebase_service.dart';
 import 'services/storage_service.dart';
 
@@ -36,6 +37,7 @@ class AiLifeVaultApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => ProfileProvider()),
+        ChangeNotifierProvider(create: (_) => HospitalProvider()),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
