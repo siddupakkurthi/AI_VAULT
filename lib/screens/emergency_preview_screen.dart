@@ -7,6 +7,7 @@ import 'dart:convert';
 import '../providers/profile_provider.dart';
 import '../providers/hospital_provider.dart';
 import '../services/firebase_service.dart';
+import '../services/sos_service.dart';
 import '../models/medical_profile.dart';
 
 class EmergencyPreviewScreen extends StatefulWidget {
@@ -1154,38 +1155,39 @@ class _EmergencyPreviewScreenState extends State<EmergencyPreviewScreen> {
   void _callEmergencyContact(
     String phone,
   ) {
-    final cleaned =
-        phone.trim();
+    final cleaned = phone.trim();
 
     if (cleaned.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Emergency contact number is not available.',
+            'Emergency contact number is not available. Dialing 108...',
           ),
         ),
       );
-
+      SosService.makePhoneCall('108');
       return;
     }
 
-    // Copy number so the responder can
-    // quickly use the device dialer.
+    // 1. Copy number to clipboard
     Clipboard.setData(
       ClipboardData(
         text: cleaned,
       ),
     );
 
-    ScaffoldMessenger.of(context)
-        .showSnackBar(
+    // 2. Launch system phone dialer directly
+    SosService.makePhoneCall(cleaned);
+
+    ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Emergency number copied: $cleaned',
+          'Dialing $cleaned...',
         ),
+        backgroundColor: const Color(0xFF16A34A),
         action: SnackBarAction(
           label: 'OK',
+          textColor: Colors.white,
           onPressed: () {},
         ),
       ),

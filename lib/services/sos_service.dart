@@ -6,20 +6,25 @@ import '../models/medical_profile.dart';
 class SosService {
   /// Directly calls the emergency contact phone number using system dialer.
   static Future<bool> makePhoneCall(String phoneNumber) async {
-    final cleanPhone = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
-    if (cleanPhone.isEmpty) return false;
+    final cleanPhone = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '').trim();
+    final targetPhone = cleanPhone.isNotEmpty ? cleanPhone : '108';
 
-    final Uri url = Uri.parse('tel:$cleanPhone');
+    final Uri url = Uri.parse('tel:$targetPhone');
     try {
-      if (await canLaunchUrl(url)) {
-        return await launchUrl(url, mode: LaunchMode.externalApplication);
-      } else {
-        // Fallback launch
-        return await launchUrl(url);
-      }
+      // 1. Try direct launch (Mode: externalApplication)
+      final launched = await launchUrl(url, mode: LaunchMode.externalApplication);
+      if (launched) return true;
+
+      // 2. Fallback launch mode
+      return await launchUrl(url);
     } catch (e) {
-      debugPrint('Error launching phone dialer: $e');
-      return false;
+      debugPrint('Primary phone dialer launch error: $e');
+      try {
+        return await launchUrl(url);
+      } catch (e2) {
+        debugPrint('Fallback phone dialer launch error: $e2');
+        return false;
+      }
     }
   }
 

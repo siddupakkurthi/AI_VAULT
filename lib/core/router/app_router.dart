@@ -29,11 +29,10 @@ class AppRouter {
     if (kIsWeb) {
       final path = Uri.base.path;
 
-      // IMPORTANT:
-      // If someone opens an emergency QR URL directly,
-      // NEVER send them through Splash/Login.
-      if (path.startsWith('/emergency/')) {
-        return path;
+      // Handle all emergency paths (/emergency, /emergency/, /emergency/EM-12345)
+      if (path.startsWith('/emergency')) {
+        final fullUrl = path + (Uri.base.hasQuery ? '?${Uri.base.query}' : '');
+        return fullUrl;
       }
     }
 
@@ -42,6 +41,18 @@ class AppRouter {
 
   static final GoRouter router = GoRouter(
     initialLocation: initialLocation,
+
+    errorBuilder: (context, state) {
+      final path = state.uri.path;
+      if (path.contains('emergency')) {
+        final segments = state.uri.pathSegments;
+        final qrId = (segments.length >= 2 && segments[0] == 'emergency')
+            ? segments[1]
+            : state.uri.queryParameters['qrId'];
+        return EmergencyPreviewScreen(qrId: qrId);
+      }
+      return const DashboardScreen();
+    },
 
     routes: [
       GoRoute(

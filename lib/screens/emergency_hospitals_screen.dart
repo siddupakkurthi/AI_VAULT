@@ -46,16 +46,15 @@ class _EmergencyHospitalsScreenState extends State<EmergencyHospitalsScreen> {
   }
 
   void _callHospital(Hospital hospital) {
-    if (hospital.phone.trim().isNotEmpty) {
-      SosService.makePhoneCall(hospital.phone);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Phone number for ${hospital.name} is not available directly. Launching directions.'),
-          backgroundColor: AppColors.darkCard,
-        ),
-      );
-    }
+    final phoneToCall = hospital.phone.trim().isNotEmpty ? hospital.phone.trim() : '108';
+    SosService.makePhoneCall(phoneToCall);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Calling ${hospital.name.isEmpty ? "Emergency Care" : hospital.name} ($phoneToCall)...'),
+        backgroundColor: const Color(0xFF16A34A),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   @override

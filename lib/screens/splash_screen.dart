@@ -45,7 +45,7 @@ class _SplashScreenState extends State<SplashScreen>
 
     final browserPath = Uri.base.path;
 
-    if (browserPath.startsWith('/emergency/')) {
+    if (browserPath.startsWith('/emergency')) {
       // This is a public emergency page.
       //
       // Do NOT:
